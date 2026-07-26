@@ -1,0 +1,109 @@
+// Plumbing-pilot marketplace data model.
+// Three entities: jobs (homeowner requests), providers (plumbers), bids.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Urgency {
+  emergency
+  standard
+}
+
+enum JobStatus {
+  posted // intake received, not yet routed
+  bidding // standard job, bidding window open
+  quoted // standard job, window closed, top-3 quotes texted to homeowner, awaiting their 1/2/3 pick
+  dispatched // emergency job, SMS sent to nearest provider(s), awaiting "yes"
+  accepted // a provider is locked in
+  completed
+  cancelled
+}
+
+enum BidStatus {
+  submitted
+  accepted
+  rejected
+}
+
+model Job {
+  id              String    @id @default(cuid())
+  homeownerPhone  String    @map("homeowner_phone")
+  category        String // e.g. "plumbing"; kept as string for future verticals
+  description     String
+  photoUrls       String[]  @map("photo_urls")
+  address         String
+  // Coarse location parsed from ZIP/address at intake so we can run matching
+  // before revealing the exact address to providers.
+  lat             Float?
+  lng             Float?
+  // Null until the triage classifier runs (step 3). A 'posted' job with null
+  // urgency is the normal state immediately after intake.
+  urgency         Urgency?
+  // Set by the triage classifier (step 3) alongside urgency. Confidence is the
+  // model's 0-1 self-reported certainty; reasoning is a short justification.
+  triageConfidence Float?   @map("triage_confidence")
+  triageReasoning  String?  @map("triage_reasoning")
+  status          JobStatus @default(posted)
+  rawTranscript   String?   @map("raw_transcript")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  biddingExpiresAt DateTime? @map("bidding_expires_at")
+
+  // Dispatch (step 4). Providers we contacted for the active round — the
+  // emergency blast, or the standard auction invitees. Lets an inbound SMS
+  // (a "yes" or a bid) be matched back to this job, since the provider's text
+  // doesn't reference a job id.
+  dispatchedProviderIds String[] @map("dispatched_provider_ids")
+  // The provider who won the job (emergency "yes" or accepted standard bid).
+  assignedProviderId String?   @map("assigned_provider_id")
+  assignedProvider   Provider? @relation("AssignedJobs", fields: [assignedProviderId], references: [id])
+
+  bids Bid[]
+
+  @@index([status, biddingExpiresAt])
+  @@map("jobs")
+}
+
+model Provider {
+  id                 String   @id @default(cuid())
+  name               String
+  phone              String   @unique
+  specialties        String[] // job categories this provider serves
+  homeLat            Float    @map("home_lat")
+  homeLng            Float    @map("home_lng")
+  serviceRadiusMiles Float    @map("service_radius_miles")
+  isVerified         Boolean  @default(false) @map("is_verified")
+  isAvailable        Boolean  @default(true) @map("is_available")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  bids         Bid[]
+  assignedJobs Job[] @relation("AssignedJobs")
+
+  @@map("providers")
+}
+
+model Bid {
+  id         String    @id @default(cuid())
+  jobId      String    @map("job_id")
+  providerId String    @map("provider_id")
+  priceCents Int       @map("price_cents")
+  etaMinutes Int       @map("eta_minutes")
+  rawText    String    @map("raw_text")
+  status     BidStatus @default(submitted)
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  job      Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  // One active bid per provider per job. A provider can only have a single
+  // (job_id, provider_id) row, so re-bidding updates the existing row rather
+  // than stacking. Enforced at the DB level.
+  @@unique([jobId, providerId], name: "one_bid_per_provider_per_job")
+  @@index([jobId, status])
+  @@map("bids")
+}
