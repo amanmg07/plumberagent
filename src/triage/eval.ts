@@ -1,13 +1,16 @@
-import "../lib/env.js"; // must be first — loads .env before the Anthropic client
+import "../lib/env.js"; // must be first — loads .env before the LLM client
 import { classify } from "./classify.js";
+import { LLM_PROVIDER, MODEL } from "../lib/anthropic.js";
 import { fixtures } from "./fixtures.js";
 
-// Run every fixture through classify() against the real Claude API, print a
-// comparison table, and report accuracy — with special attention to
-// emergencies misclassified as standard (a false negative here means a real
-// emergency would go into a 15-minute auction instead of being dispatched).
+// Run every fixture through classify() against a real LLM, print a comparison
+// table, and report accuracy — with special attention to emergencies
+// misclassified as standard (a false negative here means a real emergency would
+// go into a 15-minute auction instead of being dispatched).
 //
-// Run with: npm run eval:triage   (requires ANTHROPIC_API_KEY)
+// Providers (set one before running):
+//   ANTHROPIC_API_KEY=...  -> Claude (what you'd ship; most representative)
+//   GROQ_API_KEY=...       -> Groq free tier (tests that model's judgment, not Claude's)
 // Exits 1 if ANY expected-emergency fixture is classified 'standard', so this
 // can gate CI later.
 
@@ -16,16 +19,23 @@ function pad(s: string, n: number): string {
 }
 
 async function main() {
-  if (!process.env.ANTHROPIC_API_KEY) {
+  // Only the default Claude path needs a key we can check up front; the other
+  // providers are selected because their key is already present.
+  if (LLM_PROVIDER === "anthropic" && !process.env.ANTHROPIC_API_KEY) {
     console.error(
-      "ANTHROPIC_API_KEY is not set. This eval calls the real Claude API — set it and re-run.",
+      "No LLM credential found. Set ANTHROPIC_API_KEY (Claude), or GROQ_API_KEY for a free model, then re-run.",
     );
     process.exit(2);
   }
 
   console.log(
-    `\nRunning ${fixtures.length} triage fixtures against the classifier...\n`,
+    `\nRunning ${fixtures.length} triage fixtures  |  provider: ${LLM_PROVIDER}  model: ${MODEL}\n`,
   );
+  if (LLM_PROVIDER !== "anthropic") {
+    console.log(
+      `NOTE: this measures ${LLM_PROVIDER}'s judgment, not the Claude model you'd ship.\n`,
+    );
+  }
 
   console.log(
     `${pad("id", 26)} ${pad("expected", 10)} ${pad("actual", 10)} ${pad("conf", 6)} ${pad("ok", 4)}`,

@@ -38,6 +38,13 @@ actively flooding, cosmetic problems, and routine installs or maintenance.
 A panicked or upset tone does NOT by itself make something an emergency — judge by the actual \
 described conditions. Likewise, a calm tone does not downgrade a genuine emergency.
 
+Some criteria depend on a fact the caller may not have stated. In particular, "no working toilet \
+in a single-bathroom home" is an emergency, but only if you know it's the sole bathroom. If a \
+toilet is out (clogged, won't flush, overflowing) and the transcript does NOT clearly establish \
+there is another working bathroom, you do NOT have enough information to safely call it standard — \
+report LOW confidence. The same holds for any classification that hinges on a detail the transcript \
+doesn't actually contain: do not be confident about a fact you had to assume.
+
 Report your certainty as a confidence between 0 and 1. If the transcript is ambiguous, \
 contradictory, or missing the details you'd need to be sure, report LOW confidence rather than \
 guessing — a downstream rule handles low-confidence cases.`;
