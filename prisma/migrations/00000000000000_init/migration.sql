@@ -10,6 +10,25 @@ CREATE TYPE "JobStatus" AS ENUM ('posted', 'bidding', 'quoted', 'dispatched', 'a
 -- CreateEnum
 CREATE TYPE "BidStatus" AS ENUM ('submitted', 'accepted', 'rejected');
 
+-- CreateEnum
+CREATE TYPE "ConversationStatus" AS ENUM ('collecting', 'complete');
+
+-- CreateTable
+CREATE TABLE "conversations" (
+    "id" TEXT NOT NULL,
+    "homeowner_phone" TEXT NOT NULL,
+    "status" "ConversationStatus" NOT NULL DEFAULT 'collecting',
+    "description" TEXT,
+    "photo_urls" TEXT[],
+    "address" TEXT,
+    "transcript" TEXT NOT NULL DEFAULT '',
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+    "completed_at" TIMESTAMP(3),
+
+    CONSTRAINT "conversations_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateTable
 CREATE TABLE "jobs" (
     "id" TEXT NOT NULL,
@@ -62,6 +81,9 @@ CREATE TABLE "bids" (
 
     CONSTRAINT "bids_pkey" PRIMARY KEY ("id")
 );
+
+-- CreateIndex
+CREATE INDEX "conversations_homeowner_phone_status_idx" ON "conversations"("homeowner_phone", "status");
 
 -- CreateIndex
 CREATE INDEX "jobs_status_bidding_expires_at_idx" ON "jobs"("status", "bidding_expires_at");

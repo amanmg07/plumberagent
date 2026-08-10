@@ -3,7 +3,16 @@ import "../lib/env.js"; // load .env (harmless); reads no dev flags
 // Force the dev flags BEFORE importing anything that reads them at module load
 // (db.ts, anthropic.ts). Dynamic imports below pick them up.
 process.env.USE_FAKE_DB = "1";
-process.env.USE_STUB_LLM = "1";
+// Use the keyword/regex stub only when no real LLM key is present. Provide a
+// GROQ_API_KEY (or ANTHROPIC_API_KEY) to run the agent/classifier for real
+// against a fake DB.
+if (
+  !process.env.GROQ_API_KEY &&
+  !process.env.ANTHROPIC_API_KEY &&
+  !process.env.OPENAI_COMPAT_API_KEY
+) {
+  process.env.USE_STUB_LLM = "1";
+}
 process.env.PORT = process.env.PORT ?? "3000";
 
 const { createApp } = await import("../app.js");
@@ -80,6 +89,18 @@ Seeded providers (use the phone as "From" when simulating a reply):
 3) Close the window now:  curl -s -X POST localhost:${port}/dev/close-bids
    (the homeowner is texted the ranked top 3 — see the console)
 4) Homeowner picks #1:    curl -s localhost:${port}/webhooks/sms-inbound --data-urlencode 'From=+15551230002' --data-urlencode 'Body=1'
+
+── Try the TEXT-AGENT intake (new) ─────────────────────────────────
+The AI agent collects 3 things (issue, photo, address), prompting until it has
+them. Same "from" number = same conversation. Watch the "reply" in the response.
+1) Homeowner opens with the issue:
+   curl -s localhost:${port}/webhooks/message-inbound -H 'content-type: application/json' -d '{"from":"+15557770001","text":"my water heater is leaking all over the garage floor"}'
+2) Sends a photo:
+   curl -s localhost:${port}/webhooks/message-inbound -H 'content-type: application/json' -d '{"from":"+15557770001","text":"here","mediaUrls":["https://example.com/leak.jpg"]}'
+3) Gives the address (completes intake):
+   curl -s localhost:${port}/webhooks/message-inbound -H 'content-type: application/json' -d '{"from":"+15557770001","text":"its 789 Maple Ave, Seattle"}'
+   -> reply confirms it has everything; conversation status flips to "complete"
+(see all collected fields:  curl -s localhost:${port}/dev/state )
 
 Reset anytime:  curl -s -X POST localhost:${port}/dev/reset
 `);

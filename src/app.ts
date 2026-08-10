@@ -7,6 +7,7 @@ import express, {
 import { log } from "./lib/logger.js";
 import { intakeCompleteHandler } from "./webhooks/intake.js";
 import { smsInboundHandler } from "./webhooks/smsInbound.js";
+import { messageInboundHandler } from "./webhooks/messageInbound.js";
 
 // Express 4 doesn't forward rejected promises from async handlers to error
 // middleware — wrap them so a thrown/rejected handler becomes a 500 instead of
@@ -29,6 +30,7 @@ export function createApp() {
 
   app.post("/webhooks/intake-complete", asyncHandler(intakeCompleteHandler));
   app.post("/webhooks/sms-inbound", asyncHandler(smsInboundHandler));
+  app.post("/webhooks/message-inbound", asyncHandler(messageInboundHandler));
 
   // Malformed JSON bodies land here as a SyntaxError from express.json().
   // Return a clean 400 rather than a 500 stack trace.

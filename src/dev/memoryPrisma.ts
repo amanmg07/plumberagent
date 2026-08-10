@@ -6,9 +6,15 @@ interface Store {
   jobs: Map<string, any>;
   bids: Map<string, any>;
   providers: Map<string, any>;
+  conversations: Map<string, any>;
 }
 
-const store: Store = { jobs: new Map(), bids: new Map(), providers: new Map() };
+const store: Store = {
+  jobs: new Map(),
+  bids: new Map(),
+  providers: new Map(),
+  conversations: new Map(),
+};
 
 let seq = 0;
 const nextId = (prefix: string) => `${prefix}_${++seq}`;
@@ -134,6 +140,43 @@ export const memoryPrisma = {
     },
   },
 
+  conversation: {
+    create: async ({ data }: any) => {
+      const rec = {
+        id: nextId("conv"),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        status: "collecting",
+        description: null,
+        address: null,
+        photoUrls: [],
+        transcript: "",
+        completedAt: null,
+        ...data,
+      };
+      store.conversations.set(rec.id, rec);
+      return rec;
+    },
+    findFirst: async ({ where, orderBy }: any = {}) => {
+      let list = [...store.conversations.values()].filter((r) => matchWhere(r, where));
+      if (orderBy?.createdAt) {
+        list = list.sort((a, b) =>
+          orderBy.createdAt === "desc"
+            ? b.createdAt.getTime() - a.createdAt.getTime()
+            : a.createdAt.getTime() - b.createdAt.getTime(),
+        );
+      }
+      return list[0] ?? null;
+    },
+    findMany: async ({ where }: any = {}) =>
+      [...store.conversations.values()].filter((r) => matchWhere(r, where)),
+    update: async ({ where, data }: any) => {
+      const rec = store.conversations.get(where.id);
+      Object.assign(rec, data, { updatedAt: new Date() });
+      return rec;
+    },
+  },
+
   // Our code's transactions just need the same client passed as `tx`.
   $transaction: async (fn: any) => fn(memoryPrisma),
 };
@@ -144,10 +187,12 @@ export const memoryStore = {
     jobs: [...store.jobs.values()],
     bids: [...store.bids.values()],
     providers: [...store.providers.values()],
+    conversations: [...store.conversations.values()],
   }),
-  // Clear jobs and bids but keep the seeded providers.
+  // Clear jobs, bids, and conversations but keep the seeded providers.
   resetJobsAndBids: () => {
     store.jobs.clear();
     store.bids.clear();
+    store.conversations.clear();
   },
 };
