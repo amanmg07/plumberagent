@@ -5,26 +5,27 @@ import { sendMessage } from "../messaging/sendMessage.js";
 import { runIntakeTurn } from "../agent/intakeAgent.js";
 import { messageInboundSchema } from "./messageInbound.schema.js";
 
-// POST /webhooks/message-inbound
-// One homeowner text (+ optional photos) -> one agent turn. The agent extracts
-// what it can, we track the three objectives, and it replies asking for
-// whatever's still missing. When all three are collected the conversation is
-// marked complete (handoff to /webhooks/intake-complete wired later).
-export async function messageInboundHandler(req: Request, res: Response) {
-  log.info("message_inbound.received", { body: req.body });
+// A normalized inbound message, whatever channel it came from.
+export interface InboundMessage {
+  from: string;
+  text: string;
+  mediaUrls: string[];
+}
 
-  const parsed = messageInboundSchema.safeParse(req.body);
-  if (!parsed.success) {
-    log.warn("message_inbound.validation_failed", { issues: parsed.error.issues });
-    return res.status(400).json({
-      error: "validation_failed",
-      issues: parsed.error.issues.map((i) => ({ path: i.path.join("."), message: i.message })),
-    });
-  }
+export interface TurnOutcome {
+  conversationId: string;
+  status: string;
+  collected: { description: boolean; photos: number; address: boolean };
+  reply: string;
+}
 
-  const { from, text, mediaUrls } = parsed.data;
+// Core: one homeowner message (+ optional photos) -> one agent turn. Channel-
+// agnostic — does NOT send the reply (the caller decides how: sendMessage for
+// the JSON/dev path, TwiML for Twilio WhatsApp). Tracks the three objectives and
+// completes the conversation when all are collected (handoff wired later).
+export async function runConversationTurn(msg: InboundMessage): Promise<TurnOutcome> {
+  const { from, text, mediaUrls } = msg;
 
-  // Find the homeowner's in-progress conversation, or start a fresh one.
   const existing = await prisma.conversation.findFirst({
     where: { homeownerPhone: from, status: "collecting" },
     orderBy: { createdAt: "desc" },
@@ -33,20 +34,14 @@ export async function messageInboundHandler(req: Request, res: Response) {
     existing ??
     (await prisma.conversation.create({ data: { homeownerPhone: from } }));
 
-  // Fold in any photos from this message before running the turn.
   const photoUrls = [...convo.photoUrls, ...mediaUrls];
 
   const turn = await runIntakeTurn(
-    {
-      description: convo.description,
-      photoCount: photoUrls.length,
-      address: convo.address,
-    },
+    { description: convo.description, photoCount: photoUrls.length, address: convo.address },
     text,
     mediaUrls.length > 0,
   );
 
-  // Merge: keep existing values unless the turn extracted new ones.
   const description = turn.description ?? convo.description;
   const address = turn.address ?? convo.address;
   const complete = !!description && photoUrls.length > 0 && !!address;
@@ -68,18 +63,37 @@ export async function messageInboundHandler(req: Request, res: Response) {
     },
   });
 
-  await sendMessage(from, turn.reply);
-
   log.info("message_inbound.turn", {
     conversationId: updated.id,
     status: updated.status,
     have: { description: !!description, photos: photoUrls.length, address: !!address },
   });
 
-  return res.status(200).json({
+  return {
     conversationId: updated.id,
     status: updated.status,
     collected: { description: !!description, photos: photoUrls.length, address: !!address },
     reply: turn.reply,
-  });
+  };
+}
+
+// POST /webhooks/message-inbound
+// JSON channel (used by the dev server / curl). Runs a turn, sends the reply via
+// the sendMessage seam, and returns the outcome as JSON.
+export async function messageInboundHandler(req: Request, res: Response) {
+  log.info("message_inbound.received", { body: req.body });
+
+  const parsed = messageInboundSchema.safeParse(req.body);
+  if (!parsed.success) {
+    log.warn("message_inbound.validation_failed", { issues: parsed.error.issues });
+    return res.status(400).json({
+      error: "validation_failed",
+      issues: parsed.error.issues.map((i) => ({ path: i.path.join("."), message: i.message })),
+    });
+  }
+
+  const outcome = await runConversationTurn(parsed.data);
+  await sendMessage(parsed.data.from, outcome.reply);
+
+  return res.status(200).json(outcome);
 }
